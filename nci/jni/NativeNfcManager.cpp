@@ -182,14 +182,9 @@ void initializeGlobalDebugEnabledFlag() {
   nfc_debug_enabled =
       (NfcConfig::getUnsigned(NAME_NFC_DEBUG_ENABLED, 1) != 0) ? true : false;
 
-  char valueStr[PROPERTY_VALUE_MAX] = {0};
-  int len = property_get("nfc.debug_enabled", valueStr, "");
-  if (len > 0) {
-    unsigned debug_enabled = 1;
-    // let Android property override .conf variable
-    sscanf(valueStr, "%u", &debug_enabled);
-    nfc_debug_enabled = (debug_enabled == 0) ? false : true;
-  }
+  bool debug_enabled = property_get_bool("persist.nfc.debug_enabled", false);
+
+  nfc_debug_enabled = (nfc_debug_enabled || debug_enabled);
 
   DLOG_IF(INFO, nfc_debug_enabled)
       << StringPrintf("%s: level=%u", __func__, nfc_debug_enabled);
@@ -1588,10 +1583,12 @@ static jboolean nfcManager_doDeinitialize(JNIEnv*, jobject) {
   sAbortConnlessWait = true;
   nativeLlcpConnectionlessSocket_abortWait();
   sIsNfaEnabled = false;
+  sRoutingInitialized = false;
   sDiscoveryEnabled = false;
   sPollingEnabled = false;
   sIsDisabling = false;
   sP2pEnabled = false;
+  sReaderModeEnabled = false;
   gActivated = false;
   sLfT3tMax = 0;
 
@@ -2113,18 +2110,28 @@ static void nfcManager_doStartStopPolling(JNIEnv* e, jobject o,
   startStopPolling(start);
 }
 
+/*******************************************************************************
+**
+** Function:        nfcManager_doSetNfcSecure
+**
+** Description:     Set NfcSecure enable/disable.
+**                  e: JVM environment.
+**                  o: Java object.
+**                  enable: Sets true/false to enable/disable NfcSecure
+**                  It only updates the routing table cache without commit to
+**                  NFCC.
+**
+** Returns:         True always
+**
+*******************************************************************************/
 static jboolean nfcManager_doSetNfcSecure(JNIEnv* e, jobject o,
                                           jboolean enable) {
   RoutingManager& routingManager = RoutingManager::getInstance();
   routingManager.setNfcSecure(enable);
-  bool rfEnabled = sRfEnabled;
   if (sRoutingInitialized) {
     routingManager.disableRoutingToHost();
-    if (rfEnabled) startRfDiscovery(false);
     routingManager.updateRoutingTable();
     routingManager.enableRoutingToHost();
-    routingManager.commitRouting();
-    if (rfEnabled) startRfDiscovery(true);
   }
   return true;
 }
